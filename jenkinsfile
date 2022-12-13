@@ -1,0 +1,97 @@
+pipeline {
+    agent any
+
+    parameters {
+        booleanParam(name: 'InitPipeline', defaultValue: false, description: 'Check this to initialize pipeline without actually runing it')
+        string(name: 'Checkout', defaultValue: 'test', description: 'Branch/Commit/Tag')
+        booleanParam(name: 'IsTag', defaultValue: false, description: 'Select if you want to checkout a tag')
+    }
+
+    stages {
+        stage('Init') {
+            when {
+                equals expected: true, actual: params.InitPipeline
+            }
+            steps {
+                echo 'Initializezd Pipeline Parameters'
+            }
+        }
+        stage('Git Clone') {
+            when {
+                equals expected: false, actual: params.InitPipeline
+            }
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[
+                        name : "refs/${params.IsTag == true ? 'tags': 'heads' }/${params.Checkout}"
+                    ]],
+                    userRemoteConfigs: [[
+                        url: 'git@github.com:saarthi-pedagogy/api-publisher.git',
+                        credentialsId: 'naitik'
+                    ]],
+                    doGenerateSubmoduleConfigurations: false,
+                    extensions: [[
+                        $class: 'SubmoduleOption',
+                        disableSubmodules: false,
+                        parentCredentials: true,
+                        recursiveSubmodules: true,
+                        reference: '',
+                        trackingSubmodules: false
+                    ]],
+                    submoduleCfg: []
+                ])
+            }
+        }
+        stage('Environment Setup') {
+            when {
+                equals expected: false, actual: params.InitPipeline
+            }
+            steps {
+                configFileProvider([
+                    configFile(
+                        fileId: '.env-api-publisher',
+                        targetLocation: "${WORKSPACE}"
+                    )
+                ]) { }
+            }
+        }
+        stage('Build') {
+            when {
+                equals expected: false, actual: params.InitPipeline
+            }
+            steps {
+                sh 'npm i'
+                sh 'npm run build'
+                sh 'rm -rf /home/saarthi/Documents/project/api-publisher'
+            }
+        }
+        stage('Deploy') {
+            when {
+                equals expected: false, actual: params.InitPipeline
+            }
+            steps {
+                sh 'cp -r dist /home/saarthi/Documents/project/api-publisher'
+                configFileProvider([
+                    configFile(
+                        fileId: '.env-api-publisher',
+                        targetLocation: '/home/saarthi/Documents/project/api-publisher'
+                    )
+                ]) { }
+                sh 'cd /home/saarthi/Documents/project/api-publisher/ && mv .env-api-publisher .env'
+                sh 'cd /home/saarthi/Documents/project/api-publisher/ && npm i'
+                sh 'pm2 delete api-publisher || true'
+                sh 'cd /home/saarthi/Documents/project/api-publisher/ && pm2 start src/server.js --name api-publisher -f'
+                sh 'pm2 save'
+            }
+        }
+        stage('workspace wipeout') {
+            when {
+                equals expected: false, actual: params.InitPipeline
+            }
+            steps {
+                deleteDir()
+            }
+        }
+    }
+}
